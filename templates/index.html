@@ -11,7 +11,7 @@
 </head>
 <body>
 <div class="container mt-4">
-  <h2 class="text-center">Uniswap V3 Liquidity Pool Dashboard</h2>
+  <h2 class="text-center mb-4">Uniswap V3 Liquidity Pool Dashboard</h2>
 
   <!-- Pool Address Input Form -->
   <form method="GET" action="/" class="mb-4">
@@ -82,16 +82,12 @@
   <!-- Display Token Metadata if available -->
   {% if tokens_info and tokens_info.token0_name and tokens_info.token1_name %}
     <div class="card p-3 mb-4">
-    {% if tokens_info and tokens_info.feeTierDecimal %}
-
-{% endif %}
-
       <h4>Token Information</h4>
-      <ul>
-      <li>
-    <strong>Fee Tier:</strong>
-    {{ (tokens_info.feeTierDecimal * 100) | round(3) }}%
-  </li>
+      <ul class="mb-0">
+        <li>
+          <strong>Fee Tier:</strong>
+          {{ (tokens_info.feeTierDecimal * 100) | round(3) }}%
+        </li>
         <li>
           <strong>{{ tokens_info.token0_symbol }}:</strong>
           {{ tokens_info.token0_name }}
@@ -104,101 +100,168 @@
     </div>
   {% endif %}
 
-  <!-- Display Liquidity Coverage Bands -->
-  {% if coverage_bands %}
-    <div class="card p-3 mb-4">
-      <h4>Liquidity Bands Coverage (Subgraph Price)</h4>
-      <ul>
-        <li>
-          <strong>50% coverage:</strong>
-          {{ coverage_bands[0.5][0] }} to {{ coverage_bands[0.5][1] }}
-        </li>
-        <li>
-          <strong>75% coverage:</strong>
-          {{ coverage_bands[0.75][0] }} to {{ coverage_bands[0.75][1] }}
-        </li>
-        <li>
-          <strong>80% coverage:</strong>
-          {{ coverage_bands[0.8][0] }} to {{ coverage_bands[0.8][1] }}
-        </li>
-      </ul>
-    </div>
-  {% endif %}
+  <!--
+       Use Bootstrap tabs:
+         1) Price History
+         2) Liquidity & Yield
+  -->
+  <ul class="nav nav-tabs" id="lpTabs" role="tablist">
+    <li class="nav-item" role="presentation">
+      <button
+        class="nav-link active"
+        id="price-tab"
+        data-bs-toggle="tab"
+        data-bs-target="#priceTabContent"
+        type="button"
+        role="tab"
+        aria-controls="priceTabContent"
+        aria-selected="true"
+      >
+        Price History
+      </button>
+    </li>
+    <li class="nav-item" role="presentation">
+      <button
+        class="nav-link"
+        id="liquidity-tab"
+        data-bs-toggle="tab"
+        data-bs-target="#liquidityTabContent"
+        type="button"
+        role="tab"
+        aria-controls="liquidityTabContent"
+        aria-selected="false"
+      >
+        Liquidity & Yield
+      </button>
+    </li>
+  </ul>
 
-  <!-- Suggested Range & Yield -->
-  {% if best_cov %}
-    <div class="card p-3 mb-4">
-      <h4>Suggested Liquidity Range</h4>
-      <p>
-        We've identified the narrowest coverage band as
-        <strong>{{ (best_cov * 100) | round(0) }}% coverage</strong>
-        with a price range from
-        <strong>{{ suggested_low | round(2) }}</strong>
-        to
-        <strong>{{ suggested_high | round(2) }}</strong>.
-      </p>
+  <div class="tab-content" id="lpTabsContent">
 
-      {% if expected_yield %}
-        <p>
-          Estimated daily yield (using the dynamic fee tier
-          <strong>{{ (tokens_info.feeTierDecimal * 100) | round(2) }}%</strong>)
-          and last known volume:
-          <strong>${{ "{:,.2f}".format(expected_yield) }} / day</strong>.
-        </p>
-        <!-- Example bar chart for yield -->
-        <canvas id="yieldChart" style="max-width:400px;"></canvas>
+    <!-- ############ TAB 1: Price History ############ -->
+    <div
+      class="tab-pane fade show active p-3"
+      id="priceTabContent"
+      role="tabpanel"
+      aria-labelledby="price-tab"
+    >
+      <!-- If subgraph data is available, show pool info -->
+      {% if subgraph_data and subgraph_data|length > 0 %}
+        <div class="card p-3 mb-4">
+          <h4>Pool Information</h4>
+          <ul>
+            <li>
+              <strong>{{ tokens_info.token0_symbol }} Price:</strong>
+              ${{ "{:,.6f}".format(subgraph_data[-1].token0Price | float) }}
+            </li>
+            <li>
+              <strong>{{ tokens_info.token1_symbol }} Price:</strong>
+              ${{ "{:,.6f}".format(subgraph_data[-1].token1Price | float) }}
+            </li>
+            <li>
+              <strong>Total Liquidity (TVL):</strong>
+              ${{ "{:,.2f}".format(subgraph_data[-1].tvlUSD | float) }}
+            </li>
+            <li>
+              <strong>Volume (24h):</strong>
+              ${{ "{:,.2f}".format(subgraph_data[-1].volumeUSD | float) }}
+            </li>
+          </ul>
+        </div>
       {% else %}
-        <p class="text-muted">Insufficient data to estimate yield.</p>
+        <div class="alert alert-warning">
+          No subgraph data available or pool not found.
+        </div>
+      {% endif %}
+
+      <!-- On-Chain Data Chart -->
+      <h4>On-Chain Data</h4>
+      <canvas id="onChainChart"></canvas>
+
+      <!-- Subgraph Data Chart -->
+      <h4 class="mt-4">Subgraph Data (With Liquidity Bands)</h4>
+      <canvas id="subgraphChart"></canvas>
+    </div>
+
+    <!-- ############ TAB 2: Liquidity & Yield ############ -->
+    <div
+      class="tab-pane fade p-3"
+      id="liquidityTabContent"
+      role="tabpanel"
+      aria-labelledby="liquidity-tab"
+    >
+      <!-- Coverage Bands -->
+      {% if coverage_bands %}
+        <div class="card p-3 mb-4">
+          <h5>Liquidity Bands Coverage</h5>
+          <ul class="mb-0">
+            <li>
+              <strong>50% coverage:</strong>
+              {{ coverage_bands[0.5][0] }} to {{ coverage_bands[0.5][1] }}
+            </li>
+            <li>
+              <strong>75% coverage:</strong>
+              {{ coverage_bands[0.75][0] }} to {{ coverage_bands[0.75][1] }}
+            </li>
+            <li>
+              <strong>80% coverage:</strong>
+              {{ coverage_bands[0.8][0] }} to {{ coverage_bands[0.8][1] }}
+            </li>
+          </ul>
+        </div>
+      {% endif %}
+
+      <!-- Suggested Range & Yield -->
+      {% if best_cov %}
+        <div class="card p-3 mb-4">
+          <h5>Suggested Liquidity Range</h5>
+          <p>
+            We've identified the narrowest coverage band as
+            <strong>{{ (best_cov * 100) | round(0) }}% coverage</strong>
+            with a price range from
+            <strong>{{ suggested_low | round(6) }}</strong>
+            to
+            <strong>{{ suggested_high | round(6) }}</strong>.
+          </p>
+
+          {% if expected_yield %}
+            <p>
+              <strong>Daily Yield Calculation:</strong><br/>
+              <text>
+                Daily Yield = Volume(24h) * Fee Tier * Coverage Fraction
+              </text>
+            </p>
+            <p>
+              Based on the last known volume of
+              <strong>${{ "{:,.2f}".format(subgraph_data[-1].volumeUSD) }}</strong>
+              and a fee tier of
+              <strong>{{ (tokens_info.feeTierDecimal * 100) | round(2) }}%</strong>
+              with
+              <strong>{{ (best_cov * 100) | round(0) }}%</strong>
+              in-range coverage, our estimated daily yield is
+              <strong>${{ "{:,.2f}".format(expected_yield) }}</strong>.
+            </p>
+
+            <!-- Example bar chart for yield -->
+            <canvas id="yieldChart" style="max-width:400px;"></canvas>
+          {% else %}
+            <p class="text-muted">Insufficient data to estimate yield.</p>
+          {% endif %}
+        </div>
       {% endif %}
     </div>
-  {% endif %}
+  </div> <!-- End of tab-content -->
 
-  <!-- Display Pool Information if subgraph data is available -->
-  {% if subgraph_data and subgraph_data|length > 0 %}
-    <div class="card p-3 mb-4">
-      <h4>Pool Information</h4>
-      <ul>
-        <li>
-          <strong>{{ tokens_info.token0_symbol }} Price:</strong>
-          ${{ "{:,.6f}".format(subgraph_data[-1].token0Price | float) }}
-        </li>
-        <li>
-          <strong>{{ tokens_info.token1_symbol }} Price:</strong>
-          ${{ "{:,.6f}".format(subgraph_data[-1].token1Price | float) }}
-        </li>
-        <li>
-          <strong>Total Liquidity (TVL):</strong>
-          ${{ "{:,.2f}".format(subgraph_data[-1].tvlUSD | float) }}
-        </li>
-        <li>
-          <strong>Volume (24h):</strong>
-          ${{ "{:,.2f}".format(subgraph_data[-1].volumeUSD | float) }}
-        </li>
-      </ul>
-    </div>
-  {% else %}
-    <div class="alert alert-warning">
-      No subgraph data available or pool not found.
-    </div>
-  {% endif %}
+</div> <!-- End .container -->
 
-  <!-- On-Chain Data Chart -->
-  <h4>On-Chain Data</h4>
-  <canvas id="onChainChart"></canvas>
-
-  <!-- Subgraph Data Chart -->
-  <h4>Subgraph Data (With Liquidity Bands)</h4>
-  <canvas id="subgraphChart"></canvas>
-</div>
-
+<!-- Bootstrap & Chart.js JS -->
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 <script>
-  // Data from Flask context
+  // Data from Flask
   const subgraphData = {{ subgraph_data | tojson }};
   const onChainData = {{ on_chain_data | tojson }};
   const coverageBands = {{ coverage_bands | tojson if coverage_bands else '{}' }};
-
-  // Also pass the "best range" suggestion from Flask.
   const bestCov = {{ best_cov|default('null') }};
   const suggestedLow = {{ suggested_low|default('null') }};
   const suggestedHigh = {{ suggested_high|default('null') }};
@@ -236,8 +299,6 @@
         }
       }
     });
-  } else {
-    console.warn("No on-chain data available.");
   }
 
   // ----------------- Subgraph Chart (with coverage lines) -----------------
@@ -247,7 +308,7 @@
     );
     const subgraphPrices = subgraphData.map(item => parseFloat(item.token0Price));
 
-    // Additional datasets for coverage bands (horizontal dashed lines).
+    // Additional datasets for coverage bands
     const coverageDatasets = [];
     if (coverageBands["0.5"]) {
       coverageDatasets.push({
@@ -257,8 +318,7 @@
         borderDash: [5, 5],
         fill: false,
         tension: 0.1
-      });
-      coverageDatasets.push({
+      },{
         label: "50% Band High",
         data: subgraphLabels.map(() => coverageBands["0.5"][1]),
         borderColor: "rgba(0, 255, 0, 0.7)",
@@ -275,8 +335,7 @@
         borderDash: [5, 5],
         fill: false,
         tension: 0.1
-      });
-      coverageDatasets.push({
+      },{
         label: "75% Band High",
         data: subgraphLabels.map(() => coverageBands["0.75"][1]),
         borderColor: "rgba(255, 159, 64, 0.7)",
@@ -293,8 +352,7 @@
         borderDash: [5, 5],
         fill: false,
         tension: 0.1
-      });
-      coverageDatasets.push({
+      },{
         label: "80% Band High",
         data: subgraphLabels.map(() => coverageBands["0.8"][1]),
         borderColor: "rgba(153, 102, 255, 0.7)",
@@ -332,11 +390,10 @@
         }
       }
     });
-  } else {
-    console.warn("No subgraph data available.");
   }
 
   // ----------------- Yield Bar Chart (Optional) -----------------
+  // Only if we have a positive expectedYield
   if (expectedYield !== null && expectedYield > 0) {
     const yieldCtx = document.getElementById('yieldChart')?.getContext('2d');
     if (yieldCtx) {
