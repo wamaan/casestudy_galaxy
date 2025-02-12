@@ -34,52 +34,38 @@
     <a
       href="/?pool={{ request.args.get('pool','') }}&range=1d"
       class="btn btn-outline-secondary {% if range_key == '1d' %}active{% endif %}"
-    >
-      1D
-    </a>
+    >1D</a>
     <a
       href="/?pool={{ request.args.get('pool','') }}&range=1w"
       class="btn btn-outline-secondary {% if range_key == '1w' %}active{% endif %}"
-    >
-      1W
-    </a>
+    >1W</a>
     <a
       href="/?pool={{ request.args.get('pool','') }}&range=1m"
       class="btn btn-outline-secondary {% if range_key == '1m' %}active{% endif %}"
-    >
-      1M
-    </a>
+    >1M</a>
     <a
       href="/?pool={{ request.args.get('pool','') }}&range=1y"
       class="btn btn-outline-secondary {% if range_key == '1y' %}active{% endif %}"
-    >
-      1Y
-    </a>
+    >1Y</a>
   </div>
 
-  <!-- Subgraph Data Export -->
+  <!-- Data Export Buttons -->
   <div class="mb-3">
     <a
       href="/export-subgraph-csv?range={{ range_key }}&pool={{ request.args.get('pool','') }}"
       class="btn btn-sm btn-success"
       target="_blank"
-    >
-      Download Subgraph CSV
-    </a>
+    >Download Subgraph CSV</a>
   </div>
-
-  <!-- On-Chain Data Export -->
   <div class="mb-3">
     <a
       href="/export-onchain-csv?range={{ range_key }}&pool={{ request.args.get('pool','') }}"
       class="btn btn-sm btn-success"
       target="_blank"
-    >
-      Download On-Chain CSV
-    </a>
+    >Download On-Chain CSV</a>
   </div>
 
-  <!-- Display Token Metadata if available -->
+  <!-- Display Token/Pool Metadata if available -->
   {% if tokens_info and tokens_info.token0_name and tokens_info.token1_name %}
     <div class="card p-3 mb-4">
       <h4>Token Information</h4>
@@ -100,11 +86,7 @@
     </div>
   {% endif %}
 
-  <!--
-       Use Bootstrap tabs:
-         1) Price History
-         2) Liquidity & Yield
-  -->
+  <!-- Bootstrap Tabs -->
   <ul class="nav nav-tabs" id="lpTabs" role="tablist">
     <li class="nav-item" role="presentation">
       <button
@@ -116,9 +98,7 @@
         role="tab"
         aria-controls="priceTabContent"
         aria-selected="true"
-      >
-        Price History
-      </button>
+      >Price History</button>
     </li>
     <li class="nav-item" role="presentation">
       <button
@@ -130,22 +110,18 @@
         role="tab"
         aria-controls="liquidityTabContent"
         aria-selected="false"
-      >
-        Liquidity & Yield
-      </button>
+      >Liquidity & Yield</button>
     </li>
   </ul>
 
   <div class="tab-content" id="lpTabsContent">
-
-    <!-- ############ TAB 1: Price History ############ -->
+    <!-- Tab 1: Price History -->
     <div
       class="tab-pane fade show active p-3"
       id="priceTabContent"
       role="tabpanel"
       aria-labelledby="price-tab"
     >
-      <!-- If subgraph data is available, show pool info -->
       {% if subgraph_data and subgraph_data|length > 0 %}
         <div class="card p-3 mb-4">
           <h4>Pool Information</h4>
@@ -173,24 +149,19 @@
           No subgraph data available or pool not found.
         </div>
       {% endif %}
-
-      <!-- On-Chain Data Chart -->
       <h4>On-Chain Data</h4>
       <canvas id="onChainChart"></canvas>
-
-      <!-- Subgraph Data Chart -->
       <h4 class="mt-4">Subgraph Data (With Liquidity Bands)</h4>
       <canvas id="subgraphChart"></canvas>
     </div>
 
-    <!-- ############ TAB 2: Liquidity & Yield ############ -->
+    <!-- Tab 2: Liquidity & Yield -->
     <div
       class="tab-pane fade p-3"
       id="liquidityTabContent"
       role="tabpanel"
       aria-labelledby="liquidity-tab"
     >
-      <!-- Coverage Bands -->
       {% if coverage_bands %}
         <div class="card p-3 mb-4">
           <h5>Liquidity Bands Coverage</h5>
@@ -211,7 +182,20 @@
         </div>
       {% endif %}
 
-      <!-- Suggested Range & Yield -->
+      <div class="card p-3 mb-4">
+        <h5>Impermanent Loss Risk</h5>
+        {% if impermanent_loss and impermanent_loss.ratio %}
+          <p>
+            Based on a dynamic price change ratio of
+            <strong>{{ impermanent_loss.ratio | round(2) }}</strong>,
+            the computed impermanent loss is
+            <strong>{{ (impermanent_loss.price_increase * 100) | round(7) }}%</strong>.
+          </p>
+        {% else %}
+          <p class="text-muted">Insufficient data for impermanent loss calculation.</p>
+        {% endif %}
+      </div>
+
       {% if best_cov %}
         <div class="card p-3 mb-4">
           <h5>Suggested Liquidity Range</h5>
@@ -223,7 +207,6 @@
             to
             <strong>{{ suggested_high | round(6) }}</strong>.
           </p>
-
           {% if expected_yield %}
             <p>
               <strong>Daily Yield Calculation:</strong><br/>
@@ -232,17 +215,13 @@
               </text>
             </p>
             <p>
-              Based on the last known volume of
-              <strong>${{ "{:,.2f}".format(subgraph_data[-1].volumeUSD) }}</strong>
-              and a fee tier of
-              <strong>{{ (tokens_info.feeTierDecimal * 100) | round(2) }}%</strong>
-              with
-              <strong>{{ (best_cov * 100) | round(0) }}%</strong>
-              in-range coverage, our estimated daily yield is
+              With a 24h volume of
+              <strong>${{ "{:,.2f}".format(subgraph_data[-1].volumeUSD) }}</strong>, a fee tier of
+              <strong>{{ (tokens_info.feeTierDecimal * 100) | round(2) }}%</strong>, and
+              <strong>{{ (best_cov * 100) | round(0) }}%</strong> in-range coverage,
+              the estimated daily yield is
               <strong>${{ "{:,.2f}".format(expected_yield) }}</strong>.
             </p>
-
-            <!-- Example bar chart for yield -->
             <canvas id="yieldChart" style="max-width:400px;"></canvas>
           {% else %}
             <p class="text-muted">Insufficient data to estimate yield.</p>
@@ -251,14 +230,13 @@
       {% endif %}
     </div>
   </div> <!-- End of tab-content -->
-
 </div> <!-- End .container -->
 
 <!-- Bootstrap & Chart.js JS -->
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 <script>
-  // Data from Flask
+  // Data passed from Flask
   const subgraphData = {{ subgraph_data | tojson }};
   const onChainData = {{ on_chain_data | tojson }};
   const coverageBands = {{ coverage_bands | tojson if coverage_bands else '{}' }};
@@ -273,7 +251,6 @@
       new Date(item.timestamp * 1000).toLocaleDateString()
     );
     const onChainPrices = onChainData.map(item => parseFloat(item.price));
-
     new Chart(document.getElementById('onChainChart').getContext('2d'), {
       type: 'line',
       data: {
@@ -289,13 +266,8 @@
       options: {
         responsive: true,
         scales: {
-          y: {
-            beginAtZero: false,
-            title: { display: true, text: "Price (USD)" }
-          },
-          x: {
-            title: { display: true, text: "Date" }
-          }
+          y: { beginAtZero: false, title: { display: true, text: "Price (USD)" } },
+          x: { title: { display: true, text: "Date" } }
         }
       }
     });
@@ -307,8 +279,6 @@
       new Date(item.date).toLocaleDateString()
     );
     const subgraphPrices = subgraphData.map(item => parseFloat(item.token0Price));
-
-    // Additional datasets for coverage bands
     const coverageDatasets = [];
     if (coverageBands["0.5"]) {
       coverageDatasets.push({
@@ -361,39 +331,29 @@
         tension: 0.1
       });
     }
-
     new Chart(document.getElementById('subgraphChart').getContext('2d'), {
       type: 'line',
       data: {
         labels: subgraphLabels,
-        datasets: [
-          {
-            label: 'Subgraph Price',
-            data: subgraphPrices,
-            borderColor: 'rgb(255, 99, 132)',
-            fill: false,
-            tension: 0.1
-          },
-          ...coverageDatasets
-        ]
+        datasets: [{
+          label: 'Subgraph Price',
+          data: subgraphPrices,
+          borderColor: 'rgb(255, 99, 132)',
+          fill: false,
+          tension: 0.1
+        }, ...coverageDatasets]
       },
       options: {
         responsive: true,
         scales: {
-          y: {
-            beginAtZero: false,
-            title: { display: true, text: "Price (USD)" }
-          },
-          x: {
-            title: { display: true, text: "Date" }
-          }
+          y: { beginAtZero: false, title: { display: true, text: "Price (USD)" } },
+          x: { title: { display: true, text: "Date" } }
         }
       }
     });
   }
 
   // ----------------- Yield Bar Chart (Optional) -----------------
-  // Only if we have a positive expectedYield
   if (expectedYield !== null && expectedYield > 0) {
     const yieldCtx = document.getElementById('yieldChart')?.getContext('2d');
     if (yieldCtx) {
