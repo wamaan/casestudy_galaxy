@@ -9,13 +9,13 @@ from web3 import Web3
 app = Flask(__name__)
 
 # --------------------------------------------------------------------
-#                           Configuration
+#                           Config
 # --------------------------------------------------------------------
 
 INFURA_URL = "https://mainnet.infura.io/v3/a191fe8059fd463588656c4d34dae905"
 web3 = Web3(Web3.HTTPProvider(INFURA_URL))
 
-# Minimal ABI with slot0, liquidity, token0, token1, and now fee()
+# ABI with slot0, liquidity, token0, token1, and now fee()
 POOL_ABI = [
     {
         "inputs": [],
@@ -93,7 +93,7 @@ ERC20_ABI = [
     }
 ]
 
-# A rough average for Ethereum mainnet is ~6500 blocks/day
+# avg for eth mainnet is ~6500 blocks/day
 BLOCKS_PER_DAY_ESTIMATE = 6500
 
 # Mapping for subgraph "first" argument based on day range
