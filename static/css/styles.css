@@ -1,17 +1,97 @@
+/* Galaxy Digital-Inspired Theme */
 body {
-    background-color: #121212;
-    color: #ffffff;
-    font-family: 'Arial', sans-serif;
+  background-color: #121212; /* Deep black for a clean, professional look */
+  color: #ffffff; /* White text for contrast */
+  font-family: 'Arial', sans-serif;
 }
 
-h2 {
-    color: #ff007a; /* Uniswap accent color */
-}
-
-.navbar-brand {
-    font-weight: bold;
+h2, h4 {
+  color: #ffffff; /* Pure white for headings */
+  font-weight: bold;
 }
 
 .container {
-    margin-top: 20px;
+  background-color: #1e1e1e; /* Slightly lighter black for containers */
+  border-radius: 10px;
+  padding: 20px;
+  box-shadow: 0px 4px 15px rgba(0, 0, 0, 0.5);
+}
+
+.card {
+  background-color: #1e1e1e; /* Consistent container color */
+  border: none;
+}
+
+.card h4 {
+  color: #f39c12; /* Vibrant orange for key highlights */
+}
+
+.card ul li {
+  color: #b3b3b3; /* Subtle gray for less important text */
+}
+
+.input-group .form-control {
+  background-color: #2a2a2a; /* Dark gray input fields */
+  color: #ffffff;
+}
+
+.input-group .form-control::placeholder {
+  color: rgba(255, 255, 255, 0.6); /* Subtle placeholder text */
+}
+
+.input-group .btn-primary {
+  background-color: #f39c12; /* Vibrant orange buttons */
+  border-color: #f39c12;
+}
+
+.input-group .btn-primary:hover {
+  background-color: #d35400; /* Slightly darker orange on hover */
+}
+
+.btn-outline-secondary {
+  color: #ffffff;
+}
+
+.btn-outline-secondary.active,
+.btn-outline-secondary:hover {
+  background-color: #3498db; /* Vibrant blue for secondary buttons */
+}
+
+.btn-success {
+  background-color: #27ae60; /* Green for positive actions */
+}
+
+.btn-success:hover {
+  background-color: #229954;
+}
+
+.alert-warning {
+  background-color: rgba(243,156,18,0.2); /* Subtle orange warning alerts */
+}
+
+/* Chart.js customization */
+canvas {
+    background-color: transparent;
+}
+
+/* Styling the stats section */
+.stats-section {
+    background-color: #1e1e1e;
+    border-radius: 10px;
+    padding: 15px;
+    box-shadow: inset -2px -2px rgba(255,255,255,.05), inset -2px -2px rgba(0,.5,.5,.5);
+}
+
+/* Links styling */
+a {
+    color: #3498db; /* Blue links for emphasis */
+    text-decoration: none;
+}
+a:hover {
+    text-decoration: underline;
+}
+
+/* Subtle gridlines and separators */
+hr {
+    border-top: 1px solid rgba(255,255,255,0.1);
 }

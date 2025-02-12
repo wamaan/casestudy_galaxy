@@ -1,5 +1,7 @@
 import csv
 import io
+import math
+import time
 from flask import Flask, render_template, jsonify, request, Response
 import requests
 from web3 import Web3
@@ -7,25 +9,25 @@ from web3 import Web3
 app = Flask(__name__)
 
 # --------------------------------------------------------------------
-#                           config
+#                           Configuration
 # --------------------------------------------------------------------
 
 INFURA_URL = "https://mainnet.infura.io/v3/a191fe8059fd463588656c4d34dae905"
 web3 = Web3(Web3.HTTPProvider(INFURA_URL))
 
-# ABI with the slot0, liquidity, token0, and token1 functions
+# Minimal ABI with slot0, liquidity, token0, token1, and now fee()
 POOL_ABI = [
     {
         "inputs": [],
         "name": "slot0",
         "outputs": [
             {"internalType": "uint160","name": "sqrtPriceX96","type": "uint160"},
-            {"internalType": "int24", "name": "tick","type": "int24"},
-            {"internalType": "uint16","name": "observationIndex","type": "uint16"},
-            {"internalType": "uint16","name": "observationCardinality","type": "uint16"},
-            {"internalType": "uint16","name": "observationCardinalityNext","type": "uint16"},
-            {"internalType": "uint8", "name": "feeProtocol","type": "uint8"},
-            {"internalType": "bool", "name": "unlocked","type": "bool"}
+            {"internalType": "int24",  "name": "tick","type": "int24"},
+            {"internalType": "uint16", "name": "observationIndex","type": "uint16"},
+            {"internalType": "uint16", "name": "observationCardinality","type": "uint16"},
+            {"internalType": "uint16", "name": "observationCardinalityNext","type": "uint16"},
+            {"internalType": "uint8",  "name": "feeProtocol","type": "uint8"},
+            {"internalType": "bool",   "name": "unlocked","type": "bool"}
         ],
         "stateMutability": "view",
         "type": "function"
@@ -38,6 +40,16 @@ POOL_ABI = [
         ],
         "stateMutability": "view",
         "type": "function"
+    },
+    {
+        "constant": True,
+        "inputs": [],
+        "name": "fee",
+        "outputs": [
+            {"internalType": "uint24","name":"","type":"uint24"}
+        ],
+        "stateMutability":"view",
+        "type":"function"
     },
     {
         "constant": True,
@@ -81,7 +93,7 @@ ERC20_ABI = [
     }
 ]
 
-# Ethereum mainnet is ~6500 blocks per day
+# A rough average for Ethereum mainnet is ~6500 blocks/day
 BLOCKS_PER_DAY_ESTIMATE = 6500
 
 # Mapping for subgraph "first" argument based on day range
@@ -92,51 +104,47 @@ SUBGRAPH_RANGE_MAP = {
     "1y": 365
 }
 
-# on-chain sampling intervals
+# On-chain sampling intervals
 ONCHAIN_SAMPLING_CONFIG = {
-    "1d": {"points": 24, "interval_blocks": int(BLOCKS_PER_DAY_ESTIMATE / 24)},   # ~1 point/hour
-    "1w": {"points": 14, "interval_blocks": int((BLOCKS_PER_DAY_ESTIMATE*7)/14)},# ~2 points/day
-    "1m": {"points": 30, "interval_blocks": int((BLOCKS_PER_DAY_ESTIMATE*30)/30)},# 1 point/day
-    "1y": {"points": 52, "interval_blocks": int((BLOCKS_PER_DAY_ESTIMATE*365)/52)}# 1 point/week
+    "1d": {"points": 24, "interval_blocks": int(BLOCKS_PER_DAY_ESTIMATE / 24)},
+    "1w": {"points": 14, "interval_blocks": int((BLOCKS_PER_DAY_ESTIMATE*7)/14)},
+    "1m": {"points": 30, "interval_blocks": int((BLOCKS_PER_DAY_ESTIMATE*30)/30)},
+    "1y": {"points": 52, "interval_blocks": int((BLOCKS_PER_DAY_ESTIMATE*365)/52)}
 }
 
 # --------------------------------------------------------------------
-#                      Helper / Utility Functions
+#               Helper / Utility Functions
 # --------------------------------------------------------------------
 
 def sqrtPriceX96_to_price(sqrtPriceX96, decimal0=8, decimal1=8):
     """
     Converts Uniswap's sqrtPriceX96 value to a price.
-    The formula is: price = (sqrtPriceX96 / 2**96)**2
-    Optionally adjust for token decimals if they differ.
+    price = (sqrtPriceX96 / 2**96)**2
     """
     factor = 2 ** 96
     sqrt_price = sqrtPriceX96 / factor
     price = sqrt_price ** 2
-
-    # Adjust for decimals if token0 and token1 have different decimals
     if decimal0 != decimal1:
         price *= 10 ** (decimal0 - decimal1)
     return price
 
-def fetch_pool_token_metadata(pool_contract):
+def fetch_pool_metadata(pool_contract):
     """
-    Given a dynamic pool contract, fetch token0/token1 addresses,
-    then use ERC-20 calls to get each token's name/symbol.
-    Returns a dict with:
-      {
-        "token0_address": ...,
-        "token0_name": ...,
-        "token0_symbol": ...,
-        "token1_address": ...,
-        "token1_name": ...,
-        "token1_symbol": ...
-      }
+    Fetch token0, token1, and fee tier from the pool.
+    Returns a dict with token addresses, names, symbols, and feeTierDecimal.
     """
     try:
+        # Grab token0/token1 addresses
         t0_address = pool_contract.functions.token0().call()
         t1_address = pool_contract.functions.token1().call()
 
+        # Grab fee, which is a uint24 representing hundredths of a bps
+        # e.g. 3000 => 0.3%
+        fee_raw = pool_contract.functions.fee().call()
+        # Convert to decimal
+        fee_decimal = fee_raw / 1_000_000  # e.g. 3000 => 0.003
+
+        # Now fetch the ERC-20 token names/symbols
         t0_contract = web3.eth.contract(address=t0_address, abi=ERC20_ABI)
         t1_contract = web3.eth.contract(address=t1_address, abi=ERC20_ABI)
 
@@ -153,22 +161,17 @@ def fetch_pool_token_metadata(pool_contract):
             "token1_address": t1_address,
             "token1_name": token1_name,
             "token1_symbol": token1_symbol,
+            "feeTierDecimal": fee_decimal,  # e.g. 0.003
         }
     except Exception as e:
-        print("Error fetching token metadata:", e)
+        print("Error fetching pool metadata:", e)
         return {}
+
 
 def find_liquidity_bands(prices, coverage_list=[0.5, 0.75, 0.8]):
     """
-    Given a list of historical prices, find the TIGHTEST band (lowest difference)
-    that covers each coverage fraction in coverage_list.
-
-    Returns dict:
-      {
-        0.5: (low_50pct, high_50pct),
-        0.75: (low_75pct, high_75pct),
-        0.8: (low_80pct, high_80pct)
-      }
+    Return dict of coverage fraction -> (lowestPrice, highestPrice)
+    for a minimal band that encloses coverage_fraction of data.
     """
     results = {}
     if not prices:
@@ -178,7 +181,6 @@ def find_liquidity_bands(prices, coverage_list=[0.5, 0.75, 0.8]):
     n = len(sorted_prices)
 
     for cov in coverage_list:
-        # # of data points needed to cover cov fraction
         window_size = int(cov * n)
         if window_size < 1:
             results[cov] = (None, None)
@@ -187,7 +189,7 @@ def find_liquidity_bands(prices, coverage_list=[0.5, 0.75, 0.8]):
         min_band_width = float('inf')
         band_low, band_high = None, None
 
-        # Slide a window of length = window_size across sorted_prices
+        # Slide a window
         for i in range(0, n - window_size + 1):
             low_val = sorted_prices[i]
             high_val = sorted_prices[i + window_size - 1]
@@ -201,18 +203,47 @@ def find_liquidity_bands(prices, coverage_list=[0.5, 0.75, 0.8]):
 
     return results
 
+def choose_best_band(coverage_bands):
+    """
+    From the coverage_bands dict (like {0.5: (low,high), 0.75: (low,high)...}),
+    choose whichever band has the 'narrowest' range.
+    Return (coverage_percentage, (range_low, range_high)).
+    """
+    if not coverage_bands:
+        return (None, (None, None))
+
+    best_cov = None
+    best_range = None
+    smallest_width = float('inf')
+
+    for cov, (low_val, high_val) in coverage_bands.items():
+        if low_val is None or high_val is None:
+            continue
+        width = high_val - low_val
+        if width < smallest_width:
+            smallest_width = width
+            best_cov = cov
+            best_range = (low_val, high_val)
+
+    return (best_cov, best_range)
+
+def estimate_yield(volumeUSD, coverage_fraction, fee_tier=0.003):
+    """
+    A toy yield estimate:
+    daily_volume * fee_tier * coverage_fraction
+    e.g. volume=1,000,000, coverage=0.8, fee_tier=0.003 => $2,400/day
+    """
+    if volumeUSD is None or coverage_fraction is None:
+        return 0
+    return volumeUSD * fee_tier * coverage_fraction
+
 # --------------------------------------------------------------------
-#                           Data Fetching
+#                          Data Fetchers
 # --------------------------------------------------------------------
 
 def get_price_history(range_key="1w", pool_contract=None):
-    """
-    Fetches historical on-chain price data by sampling older blocks.
-    The range_key is one of: 1d, 1w, 1m, 1y.
-    """
     if not pool_contract:
         return []
-
     if range_key not in ONCHAIN_SAMPLING_CONFIG:
         range_key = "1w"
 
@@ -227,13 +258,11 @@ def get_price_history(range_key="1w", pool_contract=None):
             block = current_block - i * interval_blocks
             if block < 1:
                 break
-
             block_data = web3.eth.get_block(block)
             timestamp = block_data.timestamp
 
             slot0 = pool_contract.functions.slot0().call(block_identifier=block)
             sqrtPriceX96 = slot0[0]
-
             price = sqrtPriceX96_to_price(sqrtPriceX96, decimal0=8, decimal1=8)
 
             price_history.append({
@@ -243,18 +272,12 @@ def get_price_history(range_key="1w", pool_contract=None):
             })
 
         price_history = list(reversed(price_history))
-
     except Exception as e:
         print("Error fetching on-chain price history:", e)
 
     return price_history
 
 def fetch_subgraph_data(range_key="1w", pool_lower_address=None):
-    """
-    Fetches historical daily data from a Uniswap V3 Subgraph for the given pool address.
-    The range_key is one of: 1d, 1w, 1m, 1y.
-    We'll request that many 'days' from the subgraph.
-    """
     if not pool_lower_address:
         return []
 
@@ -264,7 +287,6 @@ def fetch_subgraph_data(range_key="1w", pool_lower_address=None):
     )
 
     days_requested = SUBGRAPH_RANGE_MAP.get(range_key, 7)
-
     query = f"""
     {{
       poolDayDatas(
@@ -302,98 +324,110 @@ def fetch_subgraph_data(range_key="1w", pool_lower_address=None):
             print("Unexpected 'poolDayDatas' structure:", data)
             return []
 
-        # Convert date from seconds to ms, cast numeric fields
         for entry in data:
-            entry["date"] = int(entry["date"]) * 1000
+            entry["date"]       = int(entry["date"]) * 1000
             entry["token0Price"] = float(entry["token0Price"])
             entry["token1Price"] = float(entry["token1Price"])
             entry["volumeUSD"]   = float(entry["volumeUSD"])
             entry["tvlUSD"]      = float(entry["tvlUSD"])
 
-        return data[::-1]  # reverse to show oldest first
+        return data[::-1]
     except Exception as e:
         print("Error fetching subgraph data:", e)
         return []
 
 # --------------------------------------------------------------------
-#                          Flask Routes
+#                           Flask Routes
 # --------------------------------------------------------------------
 
 @app.route('/price-history')
 def price_history():
-    """Return JSON of on-chain data, using ?range=1d / 1w / 1m / 1y & pool=?"""
     range_key = request.args.get("range", "1w")
     pool_input = request.args.get("pool", "")
     try:
         pool_address_checksum = web3.to_checksum_address(pool_input)
     except ValueError:
-        # fallback or no pool
         return jsonify([])
 
-    # Create the dynamic contract
     dynamic_contract = web3.eth.contract(address=pool_address_checksum, abi=POOL_ABI)
     data = get_price_history(range_key, dynamic_contract)
     return jsonify(data)
 
 @app.route('/')
 def index():
-    """
-    Main dashboard route.
-    Usage: /?pool=<poolAddress>&range=1w
-    """
-    # 1) Figure out which pool address user wants
+    # 1) Which pool address?
     pool_input = request.args.get("pool", "")
     if not pool_input:
-        # If no user input, default to an example pool:
         pool_input = "0xe8f7c89C5eFa061e340f2d2F206EC78FD8f7e124"
 
-    # 2) Convert to checksummed address
     try:
         pool_address_checksum = web3.to_checksum_address(pool_input)
     except ValueError:
-        # fallback in case of invalid address
+        # Fallback to default if invalid
         pool_address_checksum = web3.to_checksum_address("0xe8f7c89C5eFa061e340f2d2F206EC78FD8f7e124")
 
     pool_address_lower = pool_address_checksum.lower()
 
-    # 3) Determine which time range
+    # 2) Range key
     range_key = request.args.get("range", "1w")
 
-    # 4) Dynamic contract instance
+    # 3) Dynamic pool contract
     pool_contract_dynamic = web3.eth.contract(address=pool_address_checksum, abi=POOL_ABI)
 
-    # 5) Token metadata
-    tokens_info = fetch_pool_token_metadata(pool_contract_dynamic)
+    # 4) Fetch pool metadata (token names/symbols, fee tier)
+    tokens_info = fetch_pool_metadata(pool_contract_dynamic)
 
-    # 6) On-chain data
+    # If fetch_pool_metadata() fails, or if you want to do it inline:
+    # raw_fee = pool_contract_dynamic.functions.fee().call()
+    # fee_decimal = raw_fee / 1_000_000
+    # tokens_info["feeTierDecimal"] = fee_decimal
+
+    # 5) On-chain data
     on_chain_data = get_price_history(range_key, pool_contract_dynamic)
 
-    # 7) Subgraph data
+    # 6) Subgraph data
     subgraph_data = fetch_subgraph_data(range_key, pool_address_lower)
 
-    # 8) Compute liquidity bands from subgraph prices
-    subgraph_prices = [entry["token0Price"] for entry in subgraph_data if entry["token0Price"] > 0]
+    # 7) Coverage bands from subgraph's token0Price
+    subgraph_prices = [d["token0Price"] for d in subgraph_data if d["token0Price"] > 0]
     coverage_bands = find_liquidity_bands(subgraph_prices, [0.5, 0.75, 0.8])
 
-    # 9) Render
+    # 8) Decide which coverage band is best, compute yield
+    best_cov, best_band_range = choose_best_band(coverage_bands)
+    suggested_low, suggested_high = best_band_range if best_band_range else (None, None)
+
+    # We'll guess daily volume from the last subgraph entry:
+    daily_volume = None
+    if subgraph_data:
+        daily_volume = subgraph_data[-1]["volumeUSD"]
+
+    expected_yield = None
+    if best_cov and daily_volume:
+        # Use the dynamically retrieved fee tier from tokens_info
+        fee_decimal = tokens_info.get("feeTierDecimal", 0.003)  # fallback if missing
+        expected_yield = estimate_yield(
+            volumeUSD=daily_volume,
+            coverage_fraction=best_cov,
+            fee_tier=fee_decimal
+        )
+
     return render_template(
         "index.html",
         range_key=range_key,
         on_chain_data=on_chain_data,
         subgraph_data=subgraph_data,
         tokens_info=tokens_info,
-        coverage_bands=coverage_bands
+        coverage_bands=coverage_bands,
+        best_cov=best_cov,
+        suggested_low=suggested_low,
+        suggested_high=suggested_high,
+        expected_yield=expected_yield
     )
-
 
 # ------------------------------ CSV EXPORTS ------------------------------
 
 @app.route("/export-subgraph-csv")
 def export_subgraph_csv():
-    """
-    Exports the subgraph data as a CSV file download.
-    Usage: /export-subgraph-csv?range=1w&pool=...
-    """
     range_key = request.args.get("range", "1w")
     pool_input = request.args.get("pool", "")
     try:
@@ -406,11 +440,7 @@ def export_subgraph_csv():
 
     output = io.StringIO()
     writer = csv.writer(output)
-
-    # CSV header
     writer.writerow(["date", "token0Price", "token1Price", "volumeUSD", "tvlUSD"])
-
-    # Rows
     for row in data:
         writer.writerow([
             row["date"],
@@ -421,7 +451,6 @@ def export_subgraph_csv():
         ])
 
     output.seek(0)
-
     return Response(
         output,
         mimetype="text/csv",
@@ -430,10 +459,6 @@ def export_subgraph_csv():
 
 @app.route("/export-onchain-csv")
 def export_onchain_csv():
-    """
-    Exports the on-chain data as a CSV file download.
-    Usage: /export-onchain-csv?range=1d&pool=...
-    """
     range_key = request.args.get("range", "1w")
     pool_input = request.args.get("pool", "")
     try:
