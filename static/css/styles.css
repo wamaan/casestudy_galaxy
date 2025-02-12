@@ -1,0 +1,17 @@
+body {
+    background-color: #121212;
+    color: #ffffff;
+    font-family: 'Arial', sans-serif;
+}
+
+h2 {
+    color: #ff007a; /* Uniswap accent color */
+}
+
+.navbar-brand {
+    font-weight: bold;
+}
+
+.container {
+    margin-top: 20px;
+}

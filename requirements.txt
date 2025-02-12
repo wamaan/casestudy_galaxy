@@ -1,0 +1,6 @@
+Flask==2.2.2
+web3==6.19.0
+Werkzeug==2.2.2
+ariadne==0.25.2
+requests
+web3

@@ -1,10 +1,302 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8">
-  <title>$Title$</title>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>WBTC/cbBTC Pool Dashboard</title>
+  <link
+    href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css"
+    rel="stylesheet"
+  />
 </head>
 <body>
-$END$
+<div class="container mt-4">
+  <h2 class="text-center">Uniswap V3 Liquidity Pool Dashboard</h2>
+
+  <!-- Pool Address Input Form -->
+  <form method="GET" action="/" class="mb-4">
+    <input type="hidden" name="range" value="{{ range_key }}"/>
+    <div class="input-group">
+      <input
+        type="text"
+        name="pool"
+        class="form-control"
+        placeholder="Enter Uniswap Pool Address"
+        value="{{ request.args.get('pool', '') }}"
+        required
+      />
+      <button type="submit" class="btn btn-primary">Fetch Data</button>
+    </div>
+  </form>
+
+  <!-- Time Range Selector -->
+  <div class="btn-group mb-4" role="group" aria-label="Time Range">
+    <a
+      href="/?pool={{ request.args.get('pool','') }}&range=1d"
+      class="btn btn-outline-secondary {% if range_key == '1d' %}active{% endif %}"
+    >
+      1D
+    </a>
+    <a
+      href="/?pool={{ request.args.get('pool','') }}&range=1w"
+      class="btn btn-outline-secondary {% if range_key == '1w' %}active{% endif %}"
+    >
+      1W
+    </a>
+    <a
+      href="/?pool={{ request.args.get('pool','') }}&range=1m"
+      class="btn btn-outline-secondary {% if range_key == '1m' %}active{% endif %}"
+    >
+      1M
+    </a>
+    <a
+      href="/?pool={{ request.args.get('pool','') }}&range=1y"
+      class="btn btn-outline-secondary {% if range_key == '1y' %}active{% endif %}"
+    >
+      1Y
+    </a>
+  </div>
+
+  <!-- Subgraph Data Export -->
+  <div class="mb-3">
+    <a
+      href="/export-subgraph-csv?range={{ range_key }}&pool={{ request.args.get('pool','') }}"
+      class="btn btn-sm btn-success"
+      target="_blank"
+    >
+      Download Subgraph CSV
+    </a>
+  </div>
+
+  <!-- On-Chain Data Export -->
+  <div class="mb-3">
+    <a
+      href="/export-onchain-csv?range={{ range_key }}&pool={{ request.args.get('pool','') }}"
+      class="btn btn-sm btn-success"
+      target="_blank"
+    >
+      Download On-Chain CSV
+    </a>
+  </div>
+
+  <!-- Display Token Metadata if available -->
+  {% if tokens_info and tokens_info.token0_name and tokens_info.token1_name %}
+    <div class="card p-3 mb-4">
+      <h4>Token Information</h4>
+      <ul>
+        <li>
+          <strong>{{ tokens_info.token0_symbol }}:</strong>
+          {{ tokens_info.token0_name }}
+        </li>
+        <li>
+          <strong>{{ tokens_info.token1_symbol }}:</strong>
+          {{ tokens_info.token1_name }}
+        </li>
+      </ul>
+    </div>
+  {% endif %}
+
+  <!-- Display Liquidity Coverage Bands -->
+  {% if coverage_bands %}
+    <div class="card p-3 mb-4">
+      <h4>Liquidity Bands Coverage (Subgraph Price)</h4>
+      <ul>
+        <li>
+          <strong>50% coverage:</strong>
+          {{ coverage_bands[0.5][0] }} to {{ coverage_bands[0.5][1] }}
+        </li>
+        <li>
+          <strong>75% coverage:</strong>
+          {{ coverage_bands[0.75][0] }} to {{ coverage_bands[0.75][1] }}
+        </li>
+        <li>
+          <strong>80% coverage:</strong>
+          {{ coverage_bands[0.8][0] }} to {{ coverage_bands[0.8][1] }}
+        </li>
+      </ul>
+    </div>
+  {% endif %}
+
+  <!-- Display Pool Information if subgraph data is available -->
+  {% if subgraph_data and subgraph_data|length > 0 %}
+    <div class="card p-3 mb-4">
+      <h4>Pool Information</h4>
+      <ul>
+        <li>
+          <strong>{{ tokens_info.token0_symbol }} Price:</strong>
+          ${{ "{:,.6f}".format(subgraph_data[-1].token0Price | float) }}
+        </li>
+        <li>
+          <strong>{{ tokens_info.token1_symbol }} Price:</strong>
+          ${{ "{:,.6f}".format(subgraph_data[-1].token1Price | float) }}
+        </li>
+        <li>
+          <strong>Total Liquidity (TVL):</strong>
+          ${{ "{:,.2f}".format(subgraph_data[-1].tvlUSD | float) }}
+        </li>
+        <li>
+          <strong>Volume (24h):</strong>
+          ${{ "{:,.2f}".format(subgraph_data[-1].volumeUSD | float) }}
+        </li>
+      </ul>
+    </div>
+  {% else %}
+    <div class="alert alert-warning">
+      No subgraph data available or pool not found.
+    </div>
+  {% endif %}
+
+  <!-- On-Chain Data Chart -->
+  <h4>On-Chain Data</h4>
+  <canvas id="onChainChart"></canvas>
+
+  <!-- Subgraph Data Chart -->
+  <h4>Subgraph Data (With Liquidity Bands)</h4>
+  <canvas id="subgraphChart"></canvas>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<script>
+  // Passing data from Flask context
+  const subgraphData = {{ subgraph_data | tojson }};
+  const onChainData = {{ on_chain_data | tojson }};
+  const coverageBands = {{ coverage_bands | tojson if coverage_bands else '{}' }};
+
+  // ----------------- On-Chain Chart -----------------
+  if (onChainData && onChainData.length > 0) {
+    const onChainLabels = onChainData.map(item =>
+      new Date(item.timestamp * 1000).toLocaleDateString()
+    );
+    const onChainPrices = onChainData.map(item =>
+      parseFloat(item.price)
+    );
+
+    new Chart(document.getElementById('onChainChart').getContext('2d'), {
+      type: 'line',
+      data: {
+        labels: onChainLabels,
+        datasets: [{
+          label: 'On-Chain Price',
+          data: onChainPrices,
+          borderColor: 'rgb(54, 162, 235)',
+          fill: false,
+          tension: 0.1,
+        }]
+      },
+      options: {
+        responsive: true,
+        scales: {
+          y: {
+            beginAtZero: false,
+            title: { display: true, text: "Price (USD)" }
+          },
+          x: {
+            title: { display: true, text: "Date" }
+          }
+        }
+      }
+    });
+  } else {
+    console.warn("No on-chain data available.");
+  }
+
+  // ----------------- Subgraph Chart -----------------
+  if (subgraphData && subgraphData.length > 0) {
+    const subgraphLabels = subgraphData.map(item =>
+      new Date(item.date).toLocaleDateString()
+    );
+    const subgraphPrices = subgraphData.map(item =>
+      parseFloat(item.token0Price)
+    );
+
+    // Create additional datasets for coverage bands as dashed lines.
+    const coverageDatasets = [];
+    if (coverageBands["0.5"]) {
+      coverageDatasets.push({
+        label: "50% Band Low",
+        data: subgraphLabels.map(() => coverageBands["0.5"][0]),
+        borderColor: "rgba(0, 255, 0, 0.7)",
+        borderDash: [5, 5],
+        fill: false,
+        tension: 0.1,
+      });
+      coverageDatasets.push({
+        label: "50% Band High",
+        data: subgraphLabels.map(() => coverageBands["0.5"][1]),
+        borderColor: "rgba(0, 255, 0, 0.7)",
+        borderDash: [5, 5],
+        fill: false,
+        tension: 0.1,
+      });
+    }
+    if (coverageBands["0.75"]) {
+      coverageDatasets.push({
+        label: "75% Band Low",
+        data: subgraphLabels.map(() => coverageBands["0.75"][0]),
+        borderColor: "rgba(255, 159, 64, 0.7)",
+        borderDash: [5, 5],
+        fill: false,
+        tension: 0.1,
+      });
+      coverageDatasets.push({
+        label: "75% Band High",
+        data: subgraphLabels.map(() => coverageBands["0.75"][1]),
+        borderColor: "rgba(255, 159, 64, 0.7)",
+        borderDash: [5, 5],
+        fill: false,
+        tension: 0.1,
+      });
+    }
+    if (coverageBands["0.8"]) {
+      coverageDatasets.push({
+        label: "80% Band Low",
+        data: subgraphLabels.map(() => coverageBands["0.8"][0]),
+        borderColor: "rgba(153, 102, 255, 0.7)",
+        borderDash: [5, 5],
+        fill: false,
+        tension: 0.1,
+      });
+      coverageDatasets.push({
+        label: "80% Band High",
+        data: subgraphLabels.map(() => coverageBands["0.8"][1]),
+        borderColor: "rgba(153, 102, 255, 0.7)",
+        borderDash: [5, 5],
+        fill: false,
+        tension: 0.1,
+      });
+    }
+
+    new Chart(document.getElementById('subgraphChart').getContext('2d'), {
+      type: 'line',
+      data: {
+        labels: subgraphLabels,
+        datasets: [
+          {
+            label: 'Subgraph Price',
+            data: subgraphPrices,
+            borderColor: 'rgb(255, 99, 132)',
+            fill: false,
+            tension: 0.1,
+          },
+          ...coverageDatasets
+        ]
+      },
+      options: {
+        responsive: true,
+        scales: {
+          y: {
+            beginAtZero: false,
+            title: { display: true, text: "Price (USD)" }
+          },
+          x: {
+            title: { display: true, text: "Date" }
+          }
+        }
+      }
+    });
+  } else {
+    console.warn("No subgraph data available.");
+  }
+</script>
 </body>
 </html>
